@@ -80,10 +80,23 @@ func (c *Cassandra) Open(url string) (database.Driver, error) {
 		return nil, ErrNoKeyspace
 	}
 
-	cluster := gocql.NewCluster(u.Host)
+	cluster := gocql.NewCluster(u.Hostname())
+	if strings.Contains(u.Hostname(), ":") {
+		portUint, err := strconv.ParseUint(u.Port(), 10, 32)
+		if err == nil {
+			port := int(portUint)
+			cluster.Port = port
+		}
+	}
 	cluster.Keyspace = strings.TrimPrefix(u.Path, "/")
 	cluster.Consistency = gocql.All
 	cluster.Timeout = 1 * time.Minute
+	cluster.ConnectTimeout = 10 * time.Second
+	if strings.Contains(u.RawQuery, "sslmode") {
+		cluster.SslOpts = &gocql.SslOptions{
+			EnableHostVerification: false,
+		}
+	}
 
 	if len(u.Query().Get("username")) > 0 && len(u.Query().Get("password")) > 0 {
 		authenticator := gocql.PasswordAuthenticator{
@@ -185,8 +198,24 @@ func (c *Cassandra) Run(migration io.Reader) error {
 func (c *Cassandra) SetVersion(version int, dirty bool) error {
 	query := `TRUNCATE "` + c.config.MigrationsTable + `"`
 	if err := c.session.Query(query).Exec(); err != nil {
-		return &database.Error{OrigErr: err, Query: []byte(query)}
+		query := `SELECT version FROM "` + c.config.MigrationsTable + `"`
+		scanner := c.session.Query(query).Iter().Scanner()
+		for scanner.Next() {
+			var (
+				ver int64
+			)
+			err := scanner.Scan(&ver)
+			if err == nil {
+				query := `DELETE FROM "` + c.config.MigrationsTable + `" where version = ` + strconv.FormatInt(ver, 10)
+				if err := c.session.Query(query).Exec(); err != nil {
+					return &database.Error{OrigErr: err, Query: []byte(query)}
+				}
+			} else {
+				return &database.Error{OrigErr: err, Query: []byte(query)}
+			}
+		}
 	}
+
 	if version >= 0 {
 		query = `INSERT INTO "` + c.config.MigrationsTable + `" (version, dirty) VALUES (?, ?)`
 		if err := c.session.Query(query, version, dirty).Exec(); err != nil {
