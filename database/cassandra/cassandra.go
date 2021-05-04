@@ -81,7 +81,7 @@ func (c *Cassandra) Open(url string) (database.Driver, error) {
 	}
 
 	cluster := gocql.NewCluster(u.Hostname())
-	if strings.Contains(u.Hostname(), ":") {
+	if strings.Contains(u.Host, ":") {
 		portUint, err := strconv.ParseUint(u.Port(), 10, 32)
 		if err == nil {
 			port := int(portUint)
