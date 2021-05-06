@@ -16,7 +16,7 @@ import (
 
 func init() {
 	db := new(Cassandra)
-	database.Register("cassandra-ssl", db)
+	database.Register("cassandra", db)
 }
 
 var DefaultMigrationsTable = "schema_migrations"
